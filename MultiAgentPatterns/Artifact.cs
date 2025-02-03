@@ -10,6 +10,8 @@ namespace MultiAgentPatterns
     {
         public string UserPrompt { get; set; }
         public List<string> Conversation { get; set; } = new List<string>();
+
+        public string Answer { get; set; }
     }
 
     public class TokenStatistics

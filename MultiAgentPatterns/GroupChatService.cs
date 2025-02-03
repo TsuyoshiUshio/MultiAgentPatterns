@@ -6,71 +6,73 @@ using System.Text.Json;
 
 namespace MultiAgentPatterns
 {
-    public class GroupChat
+    public class GroupChatService
     {
-        private List<IAgent> _agents = new ();
         private readonly AgentRegistry _agentRegistry;
-        private readonly ChatClient _chatClient;
+        private readonly OpenAIClientProvider _clientProvider;
 
-        public GroupChat(ChatClient chatClient, AgentRegistry agentRegistry)
+        public GroupChatService(OpenAIClientProvider openAIClientProvider, AgentRegistry agentRegistry)
         {
-            _chatClient = chatClient;
+            _clientProvider = openAIClientProvider;
             _agentRegistry = agentRegistry;
-        }
-
-        public void RegisterAgent(IAgent agent)
-        {
-            _agents.Add(agent);
         }
 
         // Here We write Orchestration Functions
         public async Task<Artifact> StartConversationAsync(TaskOrchestrationContext context, GroupConversationContext groupConversationContext)
         {
             var artifact = new Artifact();
-            int count = 0;
-            while(count < 20)
+
+            // Read History
+            var entityId = new EntityInstanceId(nameof(SessionHistory), groupConversationContext.RequestId);
+            var sessionHistoryState = await context.Entities.CallEntityAsync<SessionHistoryState>(entityId, "Get");
+            bool newSession = false;
+            if (sessionHistoryState == null)
             {
-                // Read History
-                var entityId = new EntityInstanceId(nameof(SessionHistory), groupConversationContext.RequestId);
-                var sessionHistoryState = await context.Entities.CallEntityAsync<SessionHistoryState>(entityId, "Get");
-                if (sessionHistoryState == null)
-                {
-                    sessionHistoryState = new SessionHistoryState();
-                }
-                var history = sessionHistoryState.History;
-                var groupConversationUserPrompt = $"[User] {groupConversationContext.UserPrompt}";
-                history.Add(new History(groupConversationUserPrompt, MessageType.User));
-                artifact.UserPrompt = groupConversationContext.UserPrompt;
-                artifact.Conversation.Add(groupConversationUserPrompt);
-
-                var conversationContext = new ConversationContext()
-                {
-                    GroupConversationUserPrompt = groupConversationContext.UserPrompt,
-                    UserPrompt = groupConversationContext.UserPrompt,
-                    History = history
-                };
-
-                // From the conversation context, decide whith agents to call.
-                var selectedAgent = await context.CallActivityAsync<SelectedAgent>(nameof(SelectAgent), conversationContext);
-                // Run the agent
-                conversationContext.RequestedAgent = "Facilitator";
-
-                ConversationResult result = await DispatchAgent(context, conversationContext, selectedAgent);
-                history.AddRange(result.NewHistory);
-                sessionHistoryState.History = history;
-                // Persist the history
-                await context.Entities.CallEntityAsync(entityId, "Set", sessionHistoryState);
-                if (result.Approved)
-                {
-                    // Todo Upload the artifact
-                    return artifact;
-                } 
-                else
-                {
-                    artifact.Conversation.Add(result.Text);
-                    count++;
-                }
+                newSession = true;
+                sessionHistoryState = new SessionHistoryState();
             }
+            var history = sessionHistoryState.History;
+            var groupConversationUserPrompt = $"[User] {groupConversationContext.UserPrompt}";
+            if (!newSession)
+            {
+                // Conversation progress.
+                groupConversationUserPrompt = $"[Facilitator] {groupConversationContext.UserPrompt}";
+            } 
+
+            history.Add(new History(groupConversationUserPrompt, MessageType.User));
+            artifact.Conversation.Add(groupConversationUserPrompt);
+
+            var conversationContext = new ConversationContext()
+            {
+                GroupConversationUserPrompt = groupConversationContext.UserPrompt,
+                UserPrompt = groupConversationContext.UserPrompt,
+                History = history,
+            };
+
+            // From the conversation context, decide whith agents to call.
+            var selectedAgent = await context.CallActivityAsync<SelectedAgent>(nameof(SelectAgent), conversationContext);
+            // Run the agent
+            conversationContext.RequestedAgent = "Facilitator";
+            ConversationResult result = await DispatchAgent(context, conversationContext, selectedAgent);
+            history.AddRange(result.NewHistory);
+            sessionHistoryState.History = history;
+            // Persist the history
+            await context.Entities.CallEntityAsync(entityId, "Add", sessionHistoryState);
+            if (result.Approved)
+            {
+                // Todo Upload the artifact
+                // We need to return poem.
+                artifact.Conversation.Add(result.Text);
+                return artifact;
+            }
+            else
+            {
+                artifact.Conversation.Add(result.Text);
+                groupConversationContext.UserPrompt = "Progress the next step. Select the next Agent.";
+                artifact.Conversation.Add(result.Text);
+                context.ContinueAsNew(groupConversationContext);
+            }
+
             return artifact;
         }
 
@@ -79,25 +81,27 @@ namespace MultiAgentPatterns
         public async Task<SelectedAgent> SelectAgent([ActivityTrigger] ConversationContext conversationContext, FunctionContext executionContext)
         {
             // Here we call LLM to select an agent with Structured Output
-            var builder = new ChatCompletionWithToolsBuilder(_chatClient);
+            var chatClient = _clientProvider.GetChatClient();
+            var builder = new ChatCompletionWithToolsBuilder(chatClient);
             builder.AddChatMessages(conversationContext.History.Convert()); // Chat Message from user
 
             builder.AddChatMessage(new UserChatMessage(conversationContext.UserPrompt));
-            var systemPrompt = $"You are a facilitator of a group conversation."; // System Prompt
-            var userPrompt = $"Look at the user request and history, select the best agent. The conversation won't finish until ReviewAgent approve it."; // User Prompt (Instruction)
+            var systemPrompt = $"You are a facilitator of a group conversation. Once a poet wrote poem, then ask editor to edit it. Then ask reviewer for reviewing. If you find push back some of them, pick the best agent to re-do the task."; // System Prompt
+            var userPrompt = $"Look at the user request and history, select the best agent. Make sure to call ListAgent for checking the available agent."; // User Prompt (Instruction)
             builder.AddChatMessage(new SystemChatMessage(systemPrompt));
             builder.AddChatMessage(new UserChatMessage(userPrompt));
             builder.AddChatTool(GetToolDefinition());
 
             // Function Calling
-            var func = new Func<ChatToolCall, List<ChatMessage>, Task>(async (toolCall, chatMessages) =>
+            var func = new Func<ChatToolCall, List<ChatMessage>, Task<List<ChatMessage>>>((toolCall, chatMessages) =>
             {
                 if (toolCall.FunctionName == "ListAgent")
                 {
-                    var registeredJson = JsonSerializer.Serialize(_agents);
+                    var registeredJson = JsonSerializer.Serialize(_agentRegistry.Agents);
                     chatMessages.Add(new ToolChatMessage(toolCall.Id, registeredJson));
+                    return Task.FromResult(chatMessages);
                 }
-                await Task.CompletedTask;
+                return Task.FromResult(new List<ChatMessage>());
             });
 
             builder.SetFunctionCallSection(func);
@@ -110,7 +114,11 @@ namespace MultiAgentPatterns
             };
             builder.SetResponseFormat(options);
             var result = await builder.ExecuteAsync();
-            var selectedAgent = JsonSerializer.Deserialize<SelectedAgent>(result.Result);
+            JsonSerializerOptions jsonSerializerOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+            var selectedAgent = JsonSerializer.Deserialize<SelectedAgent>(result.Result, jsonSerializerOptions);
             return selectedAgent;
         }
 

@@ -2,6 +2,7 @@
 using Microsoft.DurableTask;
 using OpenAI.Chat;
 using System.Text.Json;
+using static MultiAgentPatterns.GroupChatService;
 
 namespace MultiAgentPatterns
 {
@@ -50,9 +51,16 @@ namespace MultiAgentPatterns
             builder.SetResponseFormat(options);
 
             var result = await builder.ExecuteAsync();
+            JsonSerializerOptions jsonSerializerOptions = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            var reviewResult = JsonSerializer.Deserialize<ReviewResult>(result.Result, jsonSerializerOptions);
             var assistantMessage = $"[{Name}] {result.Result}";
             newHistory.Add(new History(assistantMessage, MessageType.Assistant));
-            conversationResult.Text = assistantMessage;
+            conversationResult.Text = reviewResult.Reason;
+            conversationResult.Approved = reviewResult.Approve;
             conversationResult.NewHistory = newHistory;
             return conversationResult;
         }
@@ -80,6 +88,12 @@ namespace MultiAgentPatterns
                     AdditionalProperties = false
                 }, new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }
             );
+        }
+
+        public record class ReviewResult
+        {
+            public bool Approve { get; set; }
+            public string Reason { get; set; }
         }
     }
 }

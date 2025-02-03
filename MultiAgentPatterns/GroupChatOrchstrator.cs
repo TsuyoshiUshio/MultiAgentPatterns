@@ -10,10 +10,12 @@ namespace MultiAgentPatterns
     {
         private readonly OpenAIClientProvider _openAIClientProvider;
         private readonly AgentRegistry _agentRegistry;
-        public GroupChatOrchstrator(OpenAIClientProvider openAIClientProvider, AgentRegistry agentRegistry)
+        private readonly GroupChatService _groupChatService;
+        public GroupChatOrchstrator(OpenAIClientProvider openAIClientProvider, AgentRegistry agentRegistry, GroupChatService groupChatService)
         {
             _openAIClientProvider = openAIClientProvider;
             _agentRegistry = agentRegistry;
+            _groupChatService = groupChatService;
         }
 
         [Function(nameof(GroupChatOrchstrator))]
@@ -22,13 +24,12 @@ namespace MultiAgentPatterns
         {
             ILogger logger = context.CreateReplaySafeLogger(nameof(GroupChatOrchstrator));
 
-            var groupChat = new GroupChat(_openAIClientProvider.GetChatClient(), _agentRegistry);
-            groupChat.RegisterAgent(_agentRegistry.GetAgent(nameof(PoetAgent)));
-            groupChat.RegisterAgent(_agentRegistry.GetAgent(nameof(EditorAgent)));
-            groupChat.RegisterAgent(_agentRegistry.GetAgent(nameof(ReviewAgent)));
-
             var groupConversationContext = context.GetInput<GroupConversationContext>();
-            var artifact = await groupChat.StartConversationAsync(context, groupConversationContext);
+            // TODO Register Agent for GroupChatService
+            // List<string> agents = new List<string>();
+            // agents.Add("Facilitator");
+            // _groupChatService.RegisterAgents(context, agents); // We are going to use DurableEntity for keeping the state of the registered agents.
+            var artifact = await _groupChatService.StartConversationAsync(context, groupConversationContext);
 
             return artifact;
         }

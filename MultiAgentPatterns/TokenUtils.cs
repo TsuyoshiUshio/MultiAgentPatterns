@@ -1,4 +1,5 @@
-﻿using Microsoft.VisualBasic;
+﻿using Microsoft.DeepDev;
+using Microsoft.VisualBasic;
 using OpenAI.Chat;
 using System;
 using System.Collections.Generic;
@@ -133,10 +134,7 @@ namespace MultiAgentPatterns
             await Task.WhenAll(toolToken, systemToken, userToken, assistantToken);
             int totalToken = toolToken.Result + systemToken.Result + userToken.Result + assistantToken.Result;
             stopwatch.Stop();
-            var currentColor = Console.ForegroundColor;
-            Console.ForegroundColor = Constants.SystemColor;
             Console.WriteLine($"Local token count completed in {stopwatch.ElapsedMilliseconds} ms. Total: {totalToken} token ToolToken: {toolToken.Result}, SystemToken: {systemToken.Result} UserToken: {userToken.Result} AssistantToken: {assistantToken.Result}");
-            Console.ForegroundColor = currentColor;
             if (totalToken > Constants.MaximumTokenLength)
             {
                 throw new TokenLengthException($"Total token count exceeds the limit of {Constants.MaximumTokenLength} tokens. Add Filters or Reduce the NumberOfRows.");

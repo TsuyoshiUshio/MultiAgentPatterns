@@ -10,7 +10,7 @@ namespace MultiAgentPatterns
     {
         ChatClient _chatClient;
         List<ChatTool> _tools = new List<ChatTool>();
-        private Func<ChatToolCall, List<ChatMessage>, Task> _toolCallSection;
+        private Func<ChatToolCall, List<ChatMessage>, Task<List<ChatMessage>>> _toolCallSection;
         List<ChatMessage> _chatMessages = new List<ChatMessage>();
 
         ChatResponseFormatOptions _chatResponseFormatOptions = null;
@@ -53,7 +53,7 @@ namespace MultiAgentPatterns
 
         public List<ChatMessage> ChatMessages => _chatMessages;
 
-        public void SetFunctionCallSection(Func<ChatToolCall, List<ChatMessage>, Task> toolCallSection)
+        public void SetFunctionCallSection(Func<ChatToolCall, List<ChatMessage>, Task<List<ChatMessage>>> toolCallSection)
         {
             _toolCallSection = toolCallSection;
         }
@@ -203,7 +203,7 @@ namespace MultiAgentPatterns
 
                 foreach (ChatToolCall toolCall in completion.ToolCalls)
                 {
-                    await _toolCallSection(toolCall, chatMessages);
+                    chatMessages = await _toolCallSection(toolCall, chatMessages);
                 }
                 try
                 {
