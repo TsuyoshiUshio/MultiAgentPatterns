@@ -98,3 +98,4 @@ This is very early version. I'm going to enjoy following:
 * Use multi-modal and generate images
 * Use Streamlit to create a UI so that people can enjoy more
 * Implement more patterns
+* Use Microsoft.Extensions.AI library
