@@ -20,17 +20,26 @@ namespace MultiAgentPatterns
         // Here We write Orchestration Functions
         public async Task<Artifact> StartConversationAsync(TaskOrchestrationContext context, GroupConversationContext groupConversationContext)
         {
-            var artifact = new Artifact();
-
             // Read History
             var entityId = new EntityInstanceId(nameof(SessionHistory), groupConversationContext.RequestId);
             var sessionHistoryState = await context.Entities.CallEntityAsync<SessionHistoryState>(entityId, "Get");
+            var requestEntityId = new EntityInstanceId(nameof(RequestContext), groupConversationContext.RequestId);
+            var requestContextState = await context.Entities.CallEntityAsync<RequestContextState>(requestEntityId, "Get");
+
             bool newSession = false;
             if (sessionHistoryState == null)
             {
                 newSession = true;
                 sessionHistoryState = new SessionHistoryState();
             }
+
+            if (requestContextState == null)
+            {
+                requestContextState = new RequestContextState();
+            }
+
+            var artifact = requestContextState.Artifact ?? new Artifact();
+
             var history = sessionHistoryState.History;
             var groupConversationUserPrompt = $"[User] {groupConversationContext.UserPrompt}";
             if (!newSession)
@@ -57,19 +66,22 @@ namespace MultiAgentPatterns
             history.AddRange(result.NewHistory);
             sessionHistoryState.History = history;
             // Persist the history
-            await context.Entities.CallEntityAsync(entityId, "Add", sessionHistoryState);
+            await context.Entities.CallEntityAsync<SessionHistoryState>(entityId, "Add", sessionHistoryState);
             if (result.Approved)
             {
                 // Todo Upload the artifact
                 // We need to return poem.
                 artifact.Conversation.Add(result.Text);
+                requestContextState.Artifact = artifact;
+                await context.Entities.CallEntityAsync<RequestContextState>(requestEntityId, "Add", requestContextState);
                 return artifact;
             }
             else
             {
                 artifact.Conversation.Add(result.Text);
                 groupConversationContext.UserPrompt = "Progress the next step. Select the next Agent.";
-                artifact.Conversation.Add(result.Text);
+                requestContextState.Artifact = artifact;
+                await context.Entities.CallEntityAsync<RequestContextState>(requestEntityId, "Add", requestContextState);
                 context.ContinueAsNew(groupConversationContext);
             }
 

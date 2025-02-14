@@ -31,7 +31,7 @@ namespace MultiAgentPatterns
             var builder = new ChatCompletionWithToolsBuilder(chatClient);
             builder.AddChatMessages(conversationContext.History.Convert()); // Chat Message from user
 
-            var systemPrompt = $"You are a professional editor. Keep the poem, but can change the presentation."; // System Prompt
+            var systemPrompt = $"You are a professional editor. Read the poem and generate a prompt that generate the suitable image that fit on the poem. Return result only."; // System Prompt
 
             var userPrompt = $"[{conversationContext.RequestedAgent}] {conversationContext.UserPrompt}";
             builder.AddChatMessage(new SystemChatMessage(systemPrompt));
